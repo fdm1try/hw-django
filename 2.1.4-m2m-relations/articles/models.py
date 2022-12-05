@@ -22,6 +22,7 @@ class Tag(models.Model):
     class Meta:
         verbose_name = 'Раздел'
         verbose_name_plural = 'Разделы'
+        ordering = ('name',)
 
     def __str__(self):
         return self.name
