@@ -5,7 +5,7 @@ from advertisements.models import Advertisement, AdvertisementStatusChoices
 from rest_framework.exceptions import APIException, ValidationError
 from api_with_restrictions.settings import API_LIMITS
 
-RE_VALIDATE_TITLE = re.compile(r'^[A-Za-zА-Яа-я][A-Za-z А-Яа-я\d\-_]{2,}$')
+RE_VALIDATE_TITLE = re.compile(r'^[A-Za-zА-Яа-я][A-Za-z А-Яа-я\[\]\d\-_()]{2,}$')
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -45,10 +45,16 @@ class AdvertisementSerializer(serializers.ModelSerializer):
     def validate(self, data):
         """Метод для валидации. Вызывается при создании и обновлении."""
         # TODO: добавьте требуемую валидацию
+        request_method = self.context['request'].method
         creator = self.context['request'].user
-        open_adv_count = len(Advertisement.objects.filter(creator=creator, status=AdvertisementStatusChoices.OPEN))
-        if open_adv_count >= API_LIMITS.get('LIMIT_USER_MAX_ADV_COUNT'):
-            raise APIException('The limit on the number of open ads has been reached')
-        if not RE_VALIDATE_TITLE.match(data.get('title')):
+        if request_method == 'POST' or (
+                 request_method in ['PATCH', 'UPDATE']
+                 and 'status' in data
+                 and data['status'] == AdvertisementStatusChoices.OPEN
+        ):
+            open_adv_count = len(Advertisement.objects.filter(creator=creator, status=AdvertisementStatusChoices.OPEN))
+            if open_adv_count >= API_LIMITS.get('LIMIT_USER_MAX_ADV_COUNT'):
+                raise APIException('The limit on the number of open ads has been reached')
+        if 'title' in data and not RE_VALIDATE_TITLE.match(data.get('title')):
             raise ValidationError('Invalid title format.')
         return data

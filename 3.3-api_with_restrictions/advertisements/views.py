@@ -4,26 +4,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from rest_framework.viewsets import ModelViewSet
+from advertisements.filters import AdvertisementFilter
 from advertisements.models import Advertisement, Favorite
 from advertisements.permissions import CanModerate
 from advertisements.serializers import AdvertisementSerializer
-from django_filters import rest_framework as filters
 from advertisements.models import AdvertisementStatusChoices
 from django.db.models import Q
-from rest_framework.exceptions import APIException, NotFound
-
-
-class AdvertisementFilter(filters.FilterSet):
-    created_at = filters.DateTimeFromToRangeFilter()
-    is_favorite = filters.BooleanFilter(label='is_favorite', method='filter_favorites')
-
-    class Meta:
-        model = Advertisement
-        fields = ['status', 'created_at']
-
-    def filter_favorites(self, queryset, name, value):
-        favorite_ids = Favorite.objects.filter(user=self.request.user).values('advertisement')
-        return queryset.filter(id__in=favorite_ids) if value else queryset.exclude(id__in=favorite_ids)
 
 
 class AdvertisementViewSet(ModelViewSet):
@@ -60,24 +46,27 @@ class AdvertisementViewSet(ModelViewSet):
     def favorite(self, request, pk=None):
         advertisements = Advertisement.objects.filter(id=pk)
         if not advertisements.exists():
-            raise NotFound('Advertisement not found.')
+            return Response(data={'details': 'Advertisement not found.'}, status=404)
         advertisement = advertisements.first()
         if advertisement.status == AdvertisementStatusChoices.DRAFT:
-            raise NotFound('Advertisement not found.')
+            return Response(data={'details': 'Advertisement not found.'}, status=404)
+
         if request.method.lower() == 'delete':
             favorite = Favorite.objects.filter(user=request.user, advertisement=advertisement)
             if not favorite.exists():
-                raise NotFound('Advertisement not found in your favorites.')
+                return Response(data={'details': 'Advertisement not found.'}, status=404)
             try:
                 favorite.delete()
-            except Exception as e:
-                raise APIException(str(e))
+            except Exception:
+                return Response(data={'details': 'Internal server error.'}, status=500)
             return Response(1)
+
         if request.method.lower() == 'post':
-            if advertisement.user == request.user:
-                raise APIException('This is your own adv.')
+            if advertisement.creator == request.user:
+                return Response(data={'details': 'It is forbidden to add your own advertisement to favorites.'},
+                                status=400)
             if Favorite.objects.filter(user=request.user, advertisement=advertisement).exists():
-                raise APIException('This advertisement is already your favorite.')
+                return Response(self.get_serializer(advertisement).data)
             favorite = Favorite(user=request.user, advertisement=advertisement)
             favorite.save()
             return Response(self.get_serializer(advertisement).data)
